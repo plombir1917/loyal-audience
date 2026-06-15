@@ -1,0 +1,90 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model admin {
+  id         String   @id @default(uuid())
+  name       String
+  email      String   @unique
+  password   String
+  created_at DateTime @default(now())
+}
+
+// Тональность комментария (результат классификации).
+enum Sentiment {
+  positive
+  negative
+  neutral
+}
+
+// Сегмент пользователя по лояльности.
+enum Segment {
+  Loyal
+  Neutral
+  Disloyal
+}
+
+// Сообщество ВК (Чувашская Республика).
+model community {
+  group_id          String  @id @db.VarChar(32) // VK group id
+  group_name        String  @db.VarChar(50)
+  group_url         String  @db.VarChar(50)
+  group_description String  @db.VarChar(100)
+  group_subscribers Int
+  region            String? // фильтр: регион сообщества
+  city              String? // фильтр: населённый пункт
+  posts             post[]
+}
+
+// Публикация сообщества.
+model post {
+  post_id   String    @id @db.VarChar(32)
+  group_id  String    @db.VarChar(32)
+  post_text String
+  post_date DateTime
+  post_url  String    @db.VarChar(50)
+  community community @relation(fields: [group_id], references: [group_id], onDelete: Cascade)
+  comments  comment[]
+  likes     like[]
+}
+
+// Комментарий к публикации с тональностью.
+model comment {
+  comment_id   String     @id @db.VarChar(32)
+  post_id      String     @db.VarChar(32)
+  user_id      String     @db.VarChar(32)
+  comment_text String
+  comment_date DateTime
+  sentiment    Sentiment? // результат классификации
+  post         post       @relation(fields: [post_id], references: [post_id], onDelete: Cascade)
+  user         user       @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+}
+
+// Лайк пользователя под публикацией (признак лояльности).
+model like {
+  like_id String @id @db.VarChar(32)
+  post_id String @db.VarChar(32)
+  user_id String @db.VarChar(32)
+  post    post   @relation(fields: [post_id], references: [post_id], onDelete: Cascade)
+  user    user   @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+
+  @@unique([post_id, user_id])
+  @@map("likes")
+}
+
+// Пользователь ВК с сегментом лояльности.
+model user {
+  user_id          String    @id @db.VarChar(32)
+  user_vk_id       BigInt    @unique
+  user_profile_url String    @db.VarChar(50)
+  segment          Segment? // результат сегментации
+  comments         comment[]
+  likes            like[]
+
+  @@map("users")
+}

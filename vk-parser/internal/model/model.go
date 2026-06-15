@@ -1,0 +1,69 @@
+// Package model содержит доменные сущности, общие для слоёв vk, classifier,
+// storage и service. Структура соответствует схеме данных (Prisma в admin-panel).
+package model
+
+import "time"
+
+// Sentiment — тональность комментария.
+type Sentiment string
+
+const (
+	Positive Sentiment = "positive"
+	Negative Sentiment = "negative"
+	Neutral  Sentiment = "neutral"
+)
+
+// Segment — сегмент пользователя по лояльности.
+type Segment string
+
+const (
+	SegmentLoyal    Segment = "Loyal"
+	SegmentNeutral  Segment = "Neutral"
+	SegmentDisloyal Segment = "Disloyal"
+)
+
+// Community — сообщество ВК.
+type Community struct {
+	GroupID     string // VK group id (строка)
+	Name        string
+	URL         string
+	Description string
+	Subscribers int
+	Region      string
+	City        string
+}
+
+// Post — публикация сообщества.
+type Post struct {
+	PostID  string // "{ownerID}_{postID}"
+	GroupID string
+	Text    string
+	Date    time.Time
+	URL     string
+	OwnerID int // отрицательный id владельца стены (для wall.* методов)
+	VKID    int // числовой id поста внутри стены
+}
+
+// User — пользователь ВК.
+type User struct {
+	UserID     string // строковое представление VKID
+	VKID       int
+	ProfileURL string
+}
+
+// Like — лайк пользователя под публикацией.
+type Like struct {
+	LikeID string // "{postID}_{userID}"
+	PostID string
+	UserID string
+}
+
+// Comment — комментарий к публикации.
+type Comment struct {
+	CommentID string // "{ownerID}_{commentID}"
+	PostID    string
+	UserID    string
+	Text      string
+	Date      time.Time
+	Sentiment *Sentiment // nil, пока не классифицирован
+}

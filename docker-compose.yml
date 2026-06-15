@@ -1,0 +1,75 @@
+name: loyal-audience
+services:
+
+  admin-panel:
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - SECRET=${SECRET}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+    build: 
+      context: ./admin-panel
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  # Пакетный сборщик: собирает данные и завершается. Не поднимается обычным
+  # `docker compose up` — запуск: `docker compose --profile parser run --rm parser`.
+  parser:
+    profiles: ["parser"]
+    build:
+      context: ./vk-loyal-users-parser
+    environment:
+      - VK_TOKEN=${VK_TOKEN}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_MODEL=${LLM_MODEL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - REGION_NAME=${REGION_NAME:-Чувашская Республика}
+      - COLLECT_SINCE=${COLLECT_SINCE:-}
+      - MAX_POSTS_PER_GROUP=${MAX_POSTS_PER_GROUP:-100}
+      - MAX_COMMENTS_PER_POST=${MAX_COMMENTS_PER_POST:-100}
+      - MAX_COMMUNITIES=${MAX_COMMUNITIES:-0}
+      - VK_RATE_LIMIT=${VK_RATE_LIMIT:-3}
+    depends_on:
+      postgres:
+        condition: service_healthy
+  redis:
+    image: redis:8.2.5-bookworm
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+  postgres: 
+    image: postgres:16.13-bookworm
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    
+volumes:
+  postgres_data:
+  redis_data:
