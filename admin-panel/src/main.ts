@@ -39,7 +39,7 @@ async function bootstrap() {
 
   app.use(
     '/',
-    express.static(join(__dirname, 'frontend/public'), {
+    express.static(join(__dirname, '/public/'), {
       setHeaders: (res, filePath) => {
         const file = filePath.replace(/\\/g, '/');
         if (file.endsWith('.webmanifest')) {
