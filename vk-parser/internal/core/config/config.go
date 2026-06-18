@@ -15,7 +15,6 @@ import (
 // переопределяются, поэтому порядок: окружение → .env → .env.example.
 func loadDotenv() {
 	_ = godotenv.Load(".env")
-	_ = godotenv.Load(".env.example")
 }
 
 // Config — параметры запуска сервиса.
