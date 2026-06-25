@@ -60,17 +60,20 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	return svc.Run(ctx)
 }
 
-// newClassifier выбирает реализацию: LLM, если задан LLM_BASE_URL, иначе
-// встроенный словарный классификатор (без внешних зависимостей).
+// newClassifier выбирает реализацию: если задан LLM_BASE_URL — реальная модель
+// (LLM) как основной классификатор со словарным fallback на случай сбоя или
+// недоступности модели; иначе только встроенный словарный классификатор.
 func newClassifier(cfg config.Config, log *slog.Logger) classifier.Classifier {
+	lexicon := classifier.NewLexicon()
 	if cfg.LLMBaseURL != "" {
-		log.Info("classifier: llm", "model", cfg.LLMModel)
-		return classifier.NewLLM(classifier.LLMConfig{
+		log.Info("classifier: llm + lexicon fallback", "model", cfg.LLMModel)
+		llm := classifier.NewLLM(classifier.LLMConfig{
 			BaseURL: cfg.LLMBaseURL,
 			Model:   cfg.LLMModel,
 			APIKey:  cfg.LLMAPIKey,
 		})
+		return classifier.NewFallback(llm, lexicon, log)
 	}
 	log.Info("classifier: lexicon (LLM не настроена)")
-	return classifier.NewLexicon()
+	return lexicon
 }

@@ -15,10 +15,10 @@ import (
 // LLM — классификатор поверх OpenAI-совместимого chat/completions API
 // (подходит Ollama, llama.cpp, OpenRouter и т.п.). Модель меняется через env.
 type LLM struct {
-	baseURL string
-	model   string
-	apiKey  string
-	http    *http.Client
+	endpoint string
+	model    string
+	apiKey   string
+	http     *http.Client
 }
 
 // LLMConfig — параметры подключения к модели.
@@ -28,13 +28,19 @@ type LLMConfig struct {
 	APIKey  string
 }
 
-// NewLLM создаёт LLM-классификатор.
+// NewLLM создаёт LLM-классификатор. Принимает как базовый URL
+// (https://host/v1), так и полный endpoint (https://host/v1/chat/completions) —
+// суффикс /chat/completions добавляется только если его ещё нет.
 func NewLLM(cfg LLMConfig) *LLM {
+	endpoint := strings.TrimRight(cfg.BaseURL, "/")
+	if !strings.HasSuffix(endpoint, "/chat/completions") {
+		endpoint += "/chat/completions"
+	}
 	return &LLM{
-		baseURL: strings.TrimRight(cfg.BaseURL, "/"),
-		model:   cfg.Model,
-		apiKey:  cfg.APIKey,
-		http:    &http.Client{Timeout: 30 * time.Second},
+		endpoint: endpoint,
+		model:    cfg.Model,
+		apiKey:   cfg.APIKey,
+		http:     &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -73,7 +79,7 @@ func (l *LLM) Classify(ctx context.Context, text string) (model.Sentiment, error
 		return model.Neutral, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, l.baseURL+"/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, l.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return model.Neutral, err
 	}
