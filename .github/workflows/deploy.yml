@@ -1,0 +1,61 @@
+name: Deploy
+
+# CI/CD: при пуше в main подключаемся к серверу по SSH,
+# подтягиваем свежий код и пересобираем стек через docker compose.
+#
+# ВАЖНО: на сервере должен быть установлен git-lfs (apt install git-lfs).
+# Дистрибутивы лендинга (.zip/.exe/.AppImage) и датасеты хранятся в Git LFS;
+# без `git lfs pull` в рабочем дереве остаются 130-байтные указатели, и
+# Docker (`COPY . .`) запекает их в образ — лендинг отдаёт битые архивы.
+#
+# Требуемые GitHub Secrets (Settings → Secrets and variables → Actions):
+#   SSH_HOST      — IP или домен сервера
+#   SSH_USER      — пользователь для SSH (например, deploy)
+#   SSH_KEY       — приватный SSH-ключ целиком (содержимое id_ed25519)
+#   DEPLOY_PATH   — абсолютный путь до клонированного репозитория на сервере
+#   SSH_PORT      — (необязательно) порт SSH, по умолчанию 22
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # ручной запуск из вкладки Actions
+
+# Не даём двум деплоям выполняться одновременно.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build & deploy on server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+
+            echo "==> Подтягиваем свежий main"
+            git fetch --all --prune
+            git reset --hard origin/main
+
+            echo "==> Материализуем файлы из Git LFS (.zip/.exe/.AppImage, датасеты)"
+            # git reset/fetch НЕ скачивают LFS-объекты — без этого в дереве
+            # остаются указатели, которые попадут в Docker-образ как «архивы».
+            git lfs install --local
+            git lfs pull
+
+            echo "==> Пересобираем и поднимаем стек"
+            docker compose up -d --build --remove-orphans
+
+            echo "==> Чистим висящие образы"
+            docker image prune -f
+
+            echo "==> Статус сервисов"
+            docker compose ps
