@@ -39,6 +39,11 @@ type Config struct {
 	MaxCommentsPerPost int       // 0 — без ограничения
 	MaxCommunities     int       // 0 — без ограничения (для smoke-прогона)
 	VKRateLimit        int       // запросов в секунду к API ВК
+
+	// SkipExistingCommunities — если true, сообщество, уже сохранённое в БД,
+	// пропускается целиком (без захода в посты/комментарии). Ускоряет повторные
+	// прогоны ценой того, что новые посты в известных сообществах не подхватятся.
+	SkipExistingCommunities bool
 }
 
 // Load читает конфигурацию из окружения, подставляя значения по умолчанию.
@@ -59,6 +64,8 @@ func Load() Config {
 		MaxCommentsPerPost: getEnvInt("MAX_COMMENTS_PER_POST", 100),
 		MaxCommunities:     getEnvInt("MAX_COMMUNITIES", 0),
 		VKRateLimit:        getEnvInt("VK_RATE_LIMIT", 3),
+
+		SkipExistingCommunities: getEnvBool("SKIP_EXISTING_COMMUNITIES", false),
 	}
 }
 
@@ -84,6 +91,15 @@ func getEnvInt(key string, def int) int {
 	if v, ok := os.LookupEnv(key); ok {
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
+		}
+	}
+	return def
+}
+
+func getEnvBool(key string, def bool) bool {
+	if v, ok := os.LookupEnv(key); ok {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
 		}
 	}
 	return def

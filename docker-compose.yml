@@ -36,6 +36,7 @@ services:
       - MAX_COMMENTS_PER_POST=${MAX_COMMENTS_PER_POST:-100}
       - MAX_COMMUNITIES=${MAX_COMMUNITIES:-15}
       - VK_RATE_LIMIT=${VK_RATE_LIMIT:-3}
+      - SKIP_EXISTING_COMMUNITIES=${SKIP_EXISTING_COMMUNITIES:-false}
     depends_on:
       postgres:
         condition: service_healthy

@@ -135,6 +135,66 @@ func (s *Storage) UpsertComment(ctx context.Context, c model.Comment) error {
 	return nil
 }
 
+// CommunityExists сообщает, сохранено ли уже сообщество с таким group_id.
+func (s *Storage) CommunityExists(ctx context.Context, groupID string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM community WHERE group_id = $1)`, groupID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("community exists %s: %w", groupID, err)
+	}
+	return exists, nil
+}
+
+// ExistingCommentIDs возвращает множество comment_id поста, которые уже сохранены
+// с проставленной тональностью. Сервис пропускает их, чтобы не вызывать
+// классификатор повторно (главная статья времени и лимитов LLM).
+func (s *Storage) ExistingCommentIDs(ctx context.Context, postID string) (map[string]struct{}, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT comment_id FROM comment WHERE post_id = $1 AND sentiment IS NOT NULL`, postID)
+	if err != nil {
+		return nil, fmt.Errorf("existing comments for post %s: %w", postID, err)
+	}
+	defer rows.Close()
+
+	ids := make(map[string]struct{})
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan comment id: %w", err)
+		}
+		ids[id] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate comment ids: %w", err)
+	}
+	return ids, nil
+}
+
+// ExistingLikeUserIDs возвращает множество user_id, чьи лайки на посте уже
+// сохранены. Сервис пропускает их, чтобы не дублировать upsert.
+func (s *Storage) ExistingLikeUserIDs(ctx context.Context, postID string) (map[string]struct{}, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT user_id FROM likes WHERE post_id = $1`, postID)
+	if err != nil {
+		return nil, fmt.Errorf("existing likes for post %s: %w", postID, err)
+	}
+	defer rows.Close()
+
+	ids := make(map[string]struct{})
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan like user id: %w", err)
+		}
+		ids[id] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate like user ids: %w", err)
+	}
+	return ids, nil
+}
+
 // UpdateUserSegment проставляет конкретному пользователю сегмент лояльности.
 func (s *Storage) UpdateUserSegment(ctx context.Context, userID string, segment model.Segment) error {
 	_, err := s.pool.Exec(ctx,

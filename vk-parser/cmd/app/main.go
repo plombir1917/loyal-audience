@@ -55,6 +55,8 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		MaxPostsPerGroup:   cfg.MaxPostsPerGroup,
 		MaxCommentsPerPost: cfg.MaxCommentsPerPost,
 		MaxCommunities:     cfg.MaxCommunities,
+
+		SkipExistingCommunities: cfg.SkipExistingCommunities,
 	}, log)
 
 	return svc.Run(ctx)
