@@ -5,6 +5,7 @@ import { componentLoader, Components } from './components/components.config.js';
 import { customTheme } from './options/themes/custom.theme.js';
 import { SessionOptions } from 'express-session';
 import { ResourceService } from './options/resources/resources.service.js';
+import { ExportService } from './options/resources/export/export.service.js';
 import { en } from './options/locales/en.locale.js';
 import { AdminJsAuth } from './options/interfaces/auth.interface.js';
 import { AdminJsBranding } from './options/interfaces/branding.interface.js';
@@ -20,6 +21,7 @@ export class AdminJSService {
     @InjectRedis() private readonly redis: Redis,
     private readonly resourceServie: ResourceService,
     private readonly authService: AuthService,
+    private readonly exportService: ExportService,
   ) {}
 
   /**
@@ -55,7 +57,27 @@ export class AdminJSService {
       branding: this.getBranding(),
       rootPath: '/admin',
       resources: this.getResources(),
+      dashboard: this.getDashboard(),
       locale: this.getLocale(),
+    };
+  }
+
+  /**
+   * Дашборд: кастомный компонент с кнопкой выгрузки всей БД в Excel.
+   *
+   * @description Обычный вызов (без query) ничего не считает. Когда фронтенд
+   * запрашивает getDashboard с ?format=xlsx — отдаём книгу со всеми таблицами,
+   * каждая сущность на отдельном листе.
+   */
+  getDashboard() {
+    return {
+      component: Components.Dashboard,
+      handler: async (request: { query?: Record<string, unknown> }) => {
+        if (request?.query?.format === 'xlsx') {
+          return this.exportService.exportAll();
+        }
+        return {};
+      },
     };
   }
 

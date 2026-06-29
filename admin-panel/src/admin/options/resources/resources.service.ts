@@ -5,6 +5,7 @@ import { PrismaService } from '../../../../prisma/prisma.service.js';
 import { AdminOptions } from './options/admin/admin.options.js';
 import { FeatureType, ResourceOptions, ResourceWithOptions } from 'adminjs';
 import { ActionsService } from './actions.service.js';
+import { ExportService } from './export/export.service.js';
 import { Components } from '../../components/components.config.js';
 
 export interface resource {
@@ -55,7 +56,29 @@ export class ResourceService {
     private readonly prismaService: PrismaService,
     private readonly actionsService: ActionsService,
     private readonly adminOptions: AdminOptions,
+    private readonly exportService: ExportService,
   ) {}
+
+  // Добавляет ресурсу кнопку «Excel» (выгрузка всей таблицы в файл .xlsx).
+  // Это resource-action — кнопка появляется в тулбаре списка сущности.
+  private withExcelExport(
+    options: ResourceOptions,
+    resourceId: string,
+  ): ResourceOptions {
+    return {
+      ...options,
+      actions: {
+        ...(options.actions ?? {}),
+        exportExcel: {
+          actionType: 'resource',
+          icon: 'Download',
+          // Подпись кнопки берётся из локали: actions.exportExcel.
+          component: Components.ExportExcel,
+          handler: async () => this.exportService.exportResource(resourceId),
+        },
+      },
+    };
+  }
 
   /**
    * Ресурс - сущность программы из БД
@@ -68,23 +91,32 @@ export class ResourceService {
       },
       {
         model: Prisma.ModelName.community,
-        options: withUrlLinks(readOnly('Users'), ['group_url']),
+        options: this.withExcelExport(
+          withUrlLinks(readOnly('Users'), ['group_url']),
+          'community',
+        ),
       },
       {
         model: Prisma.ModelName.post,
-        options: withUrlLinks(readOnly('FileText'), ['post_url']),
+        options: this.withExcelExport(
+          withUrlLinks(readOnly('FileText'), ['post_url']),
+          'post',
+        ),
       },
       {
         model: Prisma.ModelName.comment,
-        options: readOnly('MessageSquare'),
+        options: this.withExcelExport(readOnly('MessageSquare'), 'comment'),
       },
       {
         model: Prisma.ModelName.like,
-        options: readOnly('Heart'),
+        options: this.withExcelExport(readOnly('Heart'), 'like'),
       },
       {
         model: Prisma.ModelName.user,
-        options: withUrlLinks(readOnly('User'), ['user_profile_url']),
+        options: this.withExcelExport(
+          withUrlLinks(readOnly('User'), ['user_profile_url']),
+          'user',
+        ),
       },
     ];
   }
