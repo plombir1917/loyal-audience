@@ -20,6 +20,8 @@ type Config struct {
 	MaxPostsPerGroup   int
 	MaxCommentsPerPost int
 	MaxCommunities     int
+	// SkipExistingCommunities — пропускать сообщество целиком, если оно уже в БД.
+	SkipExistingCommunities bool
 }
 
 // Service связывает VK-клиент, классификатор и хранилище.
@@ -36,10 +38,13 @@ type Service struct {
 // Store — необходимый сервису контракт слоя хранения.
 type Store interface {
 	UpsertCommunity(ctx context.Context, c model.Community) error
+	CommunityExists(ctx context.Context, groupID string) (bool, error)
 	UpsertPost(ctx context.Context, p model.Post) error
 	UpsertUser(ctx context.Context, u model.User) error
 	UpsertLike(ctx context.Context, l model.Like) error
 	UpsertComment(ctx context.Context, c model.Comment) error
+	ExistingCommentIDs(ctx context.Context, postID string) (map[string]struct{}, error)
+	ExistingLikeUserIDs(ctx context.Context, postID string) (map[string]struct{}, error)
 	SegmentUsers(ctx context.Context) (int64, error)
 }
 
@@ -80,6 +85,16 @@ func (s *Service) Run(ctx context.Context) error {
 		for _, comm := range communities {
 			if s.cfg.MaxCommunities != 0 && collected >= s.cfg.MaxCommunities {
 				break
+			}
+			if s.cfg.SkipExistingCommunities {
+				exists, err := s.store.CommunityExists(ctx, comm.GroupID)
+				if err != nil {
+					return err
+				}
+				if exists {
+					s.log.Info("сообщество пропущено (уже в БД)", "group_id", comm.GroupID)
+					continue
+				}
 			}
 			if err := s.processCommunity(ctx, comm); err != nil {
 				if ctx.Err() != nil {
@@ -125,12 +140,19 @@ func (s *Service) processCommunity(ctx context.Context, comm model.Community) er
 }
 
 func (s *Service) processLikes(ctx context.Context, p model.Post) error {
+	seen, err := s.store.ExistingLikeUserIDs(ctx, p.PostID)
+	if err != nil {
+		return err
+	}
 	likers, err := s.vk.GetLikers(ctx, p.OwnerID, p.VKID)
 	if err != nil {
 		return err
 	}
 	for _, vkID := range likers {
 		u := vk.NewUser(vkID)
+		if _, ok := seen[u.UserID]; ok {
+			continue // лайк уже сохранён в прошлом прогоне
+		}
 		if err := s.ensureUser(ctx, u); err != nil {
 			return err
 		}
@@ -143,11 +165,18 @@ func (s *Service) processLikes(ctx context.Context, p model.Post) error {
 }
 
 func (s *Service) processComments(ctx context.Context, p model.Post) error {
+	classified, err := s.store.ExistingCommentIDs(ctx, p.PostID)
+	if err != nil {
+		return err
+	}
 	comments, err := s.vk.GetComments(ctx, p.OwnerID, p.VKID, p.PostID, s.cfg.MaxCommentsPerPost)
 	if err != nil {
 		return err
 	}
 	for _, cm := range comments {
+		if _, ok := classified[cm.CommentID]; ok {
+			continue // комментарий уже сохранён и классифицирован — не дёргаем LLM
+		}
 		if err := s.ensureUser(ctx, vk.NewUser(atoiSafe(cm.UserID))); err != nil {
 			return err
 		}

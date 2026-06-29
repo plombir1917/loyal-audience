@@ -8,4 +8,12 @@ export const Components = {
     'UrlLink',
     path.join(__dirname, 'url-link'),
   ),
+  ExportExcel: componentLoader.add(
+    'ExportExcel',
+    path.join(__dirname, 'export-excel'),
+  ),
+  Dashboard: componentLoader.add(
+    'Dashboard',
+    path.join(__dirname, 'dashboard'),
+  ),
 };

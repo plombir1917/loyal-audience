@@ -16,6 +16,7 @@ export const en = {
     refresh: 'Обновить',
     upload: 'Загрузить',
     remove: 'Удалить файл',
+    exportExcel: 'Excel',
   },
   buttons: {
     save: 'Сохранить',
