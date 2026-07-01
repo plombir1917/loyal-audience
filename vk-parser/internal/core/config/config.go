@@ -5,10 +5,22 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
 )
+
+// defaultSearchKeywords — темы-затравки для groups.search на каждый город.
+// Поиск ВК требует непустой q и матчит его по названию/описанию, а city_id
+// сужает выдачу до города. Разные затравки достают разные пласты сообществ
+// (сверх тех, что содержат само имя города), результаты дедуплицируются.
+var defaultSearchKeywords = []string{
+	"новости", "подслушано", "типичный", "барахолка", "объявления",
+	"работа", "вакансии", "недвижимость", "авто", "дтп", "чп",
+	"происшествия", "знакомства", "афиша", "туризм", "спорт",
+	"бизнес", "мамы", "школа", "продам", "куплю", "услуги",
+}
 
 // loadDotenv подхватывает переменные из .env (а как запасной источник — из
 // .env.example). Уже заданные переменные окружения имеют приоритет и не
@@ -34,6 +46,7 @@ type Config struct {
 
 	// Сбор данных.
 	RegionName         string    // название региона для фильтрации сообществ
+	SearchKeywords     []string  // доп. поисковые запросы на город (сверх имени города)
 	CollectSince       time.Time // нижняя граница даты публикаций
 	MaxPostsPerGroup   int       // 0 — без ограничения
 	MaxCommentsPerPost int       // 0 — без ограничения
@@ -59,6 +72,7 @@ func Load() Config {
 		LLMAPIKey:  getEnv("LLM_API_KEY", ""),
 
 		RegionName:         getEnv("REGION_NAME", "Чувашская Республика"),
+		SearchKeywords:     getEnvList("SEARCH_KEYWORDS", defaultSearchKeywords),
 		CollectSince:       getEnvDate("COLLECT_SINCE", startOfYear()),
 		MaxPostsPerGroup:   getEnvInt("MAX_POSTS_PER_GROUP", 100),
 		MaxCommentsPerPost: getEnvInt("MAX_COMMENTS_PER_POST", 100),
@@ -103,6 +117,26 @@ func getEnvBool(key string, def bool) bool {
 		}
 	}
 	return def
+}
+
+// getEnvList читает список значений, разделённых запятыми. Пустые элементы и
+// пробелы по краям отбрасываются. Пустая/незаданная переменная — значение по
+// умолчанию; явный список полностью заменяет дефолт.
+func getEnvList(key string, def []string) []string {
+	v, ok := os.LookupEnv(key)
+	if !ok {
+		return def
+	}
+	out := make([]string, 0)
+	for part := range strings.SplitSeq(v, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return def
+	}
+	return out
 }
 
 // getEnvDate читает дату в формате YYYY-MM-DD.

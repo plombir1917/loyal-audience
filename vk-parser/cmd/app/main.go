@@ -51,6 +51,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 
 	svc := service.New(vkClient, cls, store, service.Config{
 		RegionName:         cfg.RegionName,
+		SearchKeywords:     cfg.SearchKeywords,
 		CollectSince:       cfg.CollectSince,
 		MaxPostsPerGroup:   cfg.MaxPostsPerGroup,
 		MaxCommentsPerPost: cfg.MaxCommentsPerPost,

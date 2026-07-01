@@ -16,6 +16,7 @@ import (
 // Config — параметры одного прогона сбора.
 type Config struct {
 	RegionName         string
+	SearchKeywords     []string
 	CollectSince       time.Time
 	MaxPostsPerGroup   int
 	MaxCommentsPerPost int
@@ -77,7 +78,7 @@ func (s *Service) Run(ctx context.Context) error {
 			return err
 		}
 
-		communities, err := s.vk.SearchCommunities(ctx, city, s.cfg.RegionName)
+		communities, err := s.vk.SearchCommunities(ctx, city, s.cfg.RegionName, s.cfg.SearchKeywords)
 		if err != nil {
 			s.log.Warn("поиск сообществ не удался", "city", city.Title, "err", err)
 			continue

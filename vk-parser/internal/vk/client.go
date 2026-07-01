@@ -105,29 +105,49 @@ func (c *Client) ResolveRegionCities(ctx context.Context, regionName string) ([]
 
 // SearchCommunities ищет открытые сообщества, привязанные к городу, и обогащает
 // их данными (описание, число подписчиков) через groups.getById.
-func (c *Client) SearchCommunities(ctx context.Context, city City, regionName string) ([]model.Community, error) {
-	if err := c.wait(ctx); err != nil {
-		return nil, err
-	}
-	resp, err := c.api.GroupsSearch(api.Params{
-		"q":       city.Title,
-		"city_id": city.ID,
-		"count":   searchPageSize,
-		"sort":    0,
-	}.WithContext(ctx))
-	if err != nil {
-		return nil, fmt.Errorf("groups.search city=%d: %w", city.ID, err)
-	}
+func (c *Client) SearchCommunities(ctx context.Context, city City, regionName string, keywords []string) ([]model.Community, error) {
+	// groups.search отдаёт максимум ~1000 групп на один q и матчит его по тексту.
+	// Чтобы выбрать больше, гоняем несколько запросов на город (имя города +
+	// темы-затравки) и дедуплицируем открытые сообщества по id. city_id при этом
+	// удерживает выдачу в пределах города.
+	queries := make([]string, 0, len(keywords)+1)
+	queries = append(queries, city.Title)
+	queries = append(queries, keywords...)
 
-	ids := make([]string, 0, len(resp.Items))
-	for _, g := range resp.Items {
-		if g.IsClosed != 0 { // только открытые сообщества
+	seen := make(map[int]struct{})
+	ids := make([]string, 0)
+	var firstErr error
+	for _, q := range queries {
+		if err := c.wait(ctx); err != nil {
+			return nil, err
+		}
+		resp, err := c.api.GroupsSearch(api.Params{
+			"q":       q,
+			"city_id": city.ID,
+			"count":   searchPageSize,
+			"sort":    0,
+		}.WithContext(ctx))
+		if err != nil {
+			// Одна неудачная затравка не должна ронять весь город — запоминаем
+			// первую ошибку и продолжаем перебор.
+			if firstErr == nil {
+				firstErr = fmt.Errorf("groups.search city=%d q=%q: %w", city.ID, q, err)
+			}
 			continue
 		}
-		ids = append(ids, strconv.Itoa(g.ID))
+		for _, g := range resp.Items {
+			if g.IsClosed != 0 { // только открытые сообщества
+				continue
+			}
+			if _, ok := seen[g.ID]; ok {
+				continue
+			}
+			seen[g.ID] = struct{}{}
+			ids = append(ids, strconv.Itoa(g.ID))
+		}
 	}
 	if len(ids) == 0 {
-		return nil, nil
+		return nil, firstErr
 	}
 
 	var communities []model.Community
