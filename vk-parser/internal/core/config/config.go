@@ -53,6 +53,17 @@ type Config struct {
 	MaxCommunities     int       // 0 — без ограничения (для smoke-прогона)
 	VKRateLimit        int       // запросов в секунду к API ВК
 
+	// ClassifyConcurrency — число параллельных обращений к классификатору
+	// тональности (минимум 1). Ускоряет самую медленную часть пайплайна.
+	ClassifyConcurrency int
+
+	// Ядро аудитории. is_core = (лайков > LikeThreshold) [AND|OR]
+	// (позитивных комментариев > CommentThreshold). CoreCombineOr переключает
+	// операцию (по умолчанию AND, как «умножение» булевых в ТЗ).
+	LikeThreshold    int
+	CommentThreshold int
+	CoreCombineOr    bool
+
 	// SkipExistingCommunities — если true, сообщество, уже сохранённое в БД,
 	// пропускается целиком (без захода в посты/комментарии). Ускоряет повторные
 	// прогоны ценой того, что новые посты в известных сообществах не подхватятся.
@@ -78,6 +89,12 @@ func Load() Config {
 		MaxCommentsPerPost: getEnvInt("MAX_COMMENTS_PER_POST", 100),
 		MaxCommunities:     getEnvInt("MAX_COMMUNITIES", 0),
 		VKRateLimit:        getEnvInt("VK_RATE_LIMIT", 3),
+
+		ClassifyConcurrency: getEnvInt("CLASSIFY_CONCURRENCY", 8),
+
+		LikeThreshold:    getEnvInt("LIKE_THRESHOLD", 1),
+		CommentThreshold: getEnvInt("COMMENT_THRESHOLD", 1),
+		CoreCombineOr:    strings.EqualFold(getEnv("CORE_COMBINE", "and"), "or"),
 
 		SkipExistingCommunities: getEnvBool("SKIP_EXISTING_COMMUNITIES", false),
 	}

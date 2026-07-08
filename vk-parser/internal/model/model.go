@@ -42,6 +42,21 @@ type Post struct {
 	URL     string
 	OwnerID int // отрицательный id владельца стены (для wall.* методов)
 	VKID    int // числовой id поста внутри стены
+
+	// Reactions — агрегат реакций поста (приходит инлайн из wall.get). Поле
+	// транзиентное: UpsertPost его не пишет, реакции сохраняются отдельно.
+	Reactions []Reaction
+}
+
+// Reaction — агрегат одного типа реакции (эмодзи) под публикацией. VK отдаёт
+// только суммарные счётчики по объекту, без привязки к пользователю.
+type Reaction struct {
+	ReactionID   string // "{postID}_{vkReactionID}"
+	PostID       string
+	VKReactionID int    // id реакции в VK (0 — обычный лайк, 1..N — эмодзи)
+	Name         string // человекочитаемое имя, best-effort ("" — неизвестна)
+	Sentiment    *Sentiment
+	Count        int
 }
 
 // User — пользователь ВК.

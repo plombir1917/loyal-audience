@@ -43,14 +43,30 @@ model community {
 
 // Публикация сообщества.
 model post {
-  post_id   String    @id @db.VarChar(32)
-  group_id  String    @db.VarChar(32)
+  post_id   String     @id @db.VarChar(32)
+  group_id  String     @db.VarChar(32)
   post_text String
   post_date DateTime
-  post_url  String    @db.VarChar(50)
-  community community @relation(fields: [group_id], references: [group_id], onDelete: Cascade)
+  post_url  String     @db.VarChar(50)
+  sentiment Sentiment? // тональность содержания поста (результат классификации)
+  community community  @relation(fields: [group_id], references: [group_id], onDelete: Cascade)
   comments  comment[]
   likes     like[]
+  reactions reaction[]
+}
+
+// Агрегат реакций (эмодзи) под публикацией. VK отдаёт только суммарные счётчики
+// по объекту (не per-user), поэтому храним по строке на тип реакции поста.
+model reaction {
+  reaction_id    String     @id @db.VarChar(48) // "{post_id}_{vk_reaction_id}"
+  post_id        String     @db.VarChar(32)
+  vk_reaction_id Int // id реакции в VK (0 — обычный лайк, 1..N — эмодзи)
+  reaction_name  String?    @db.VarChar(32) // человекочитаемое имя, best-effort
+  sentiment      Sentiment? // тональность реакции (positive/negative/neutral)
+  count          Int // сколько раз реакция поставлена
+  post           post       @relation(fields: [post_id], references: [post_id], onDelete: Cascade)
+
+  @@unique([post_id, vk_reaction_id])
 }
 
 // Комментарий к публикации с тональностью.
@@ -77,14 +93,52 @@ model like {
   @@map("likes")
 }
 
-// Пользователь ВК с сегментом лояльности.
+// Пользователь ВК с сегментом лояльности и метриками вовлечённости.
 model user {
   user_id          String    @id @db.VarChar(32)
   user_vk_id       BigInt    @unique
   user_profile_url String    @db.VarChar(50)
   segment          Segment? // результат сегментации
+  like_count       Int       @default(0) // число лайков пользователя
+  comment_positive Int       @default(0) // позитивных комментариев
+  comment_negative Int       @default(0) // негативных комментариев
+  comment_neutral  Int       @default(0) // нейтральных комментариев
+  is_core          Boolean   @default(false) // входит в ядро лояльной аудитории
   comments         comment[]
   likes            like[]
 
   @@map("users")
+}
+
+// Базовая статистика (задача 2): распределение тональностей комментариев в
+// зависимости от доминирующей реакции поста. По строке на бакет реакции.
+// Материализуется парсером (пересчёт каждый прогон).
+model stats_sentiment_by_reaction {
+  reaction_bucket   String @id @db.VarChar(16) // positive | negative | neutral | none
+  posts             Int // сколько постов в бакете
+  positive_comments Int
+  negative_comments Int
+  neutral_comments  Int
+  total_comments    Int
+}
+
+// Маппинг тональности комментариев и лайков на тональность поста (задача 4А).
+// По строке на тональность поста (none — пост ещё не классифицирован).
+model stats_post_sentiment_map {
+  post_sentiment    String @id @db.VarChar(16) // positive | negative | neutral | none
+  posts             Int
+  positive_comments Int
+  negative_comments Int
+  neutral_comments  Int
+  likes             Int
+}
+
+// Сводка по ядру аудитории (задачи 4Б/5) в двух вариантах:
+// likes_only — учтены только лайки (> порога); likes_plus_comments — полная
+// формула ядра (лайки + позитивные комментарии).
+model stats_core {
+  variant     String @id @db.VarChar(32) // likes_only | likes_plus_comments
+  total_users Int
+  core_users  Int
+  core_share  Float // доля ядра, 0..1
 }

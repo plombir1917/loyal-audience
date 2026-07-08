@@ -57,6 +57,11 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		MaxCommentsPerPost: cfg.MaxCommentsPerPost,
 		MaxCommunities:     cfg.MaxCommunities,
 
+		ClassifyConcurrency: cfg.ClassifyConcurrency,
+		LikeThreshold:       cfg.LikeThreshold,
+		CommentThreshold:    cfg.CommentThreshold,
+		CoreCombineOr:       cfg.CoreCombineOr,
+
 		SkipExistingCommunities: cfg.SkipExistingCommunities,
 	}, log)
 

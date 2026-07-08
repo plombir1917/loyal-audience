@@ -6,6 +6,7 @@ import (
 	"context"
 	"log/slog"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/plombir1917/vk-loyal-users-parser/internal/classifier"
@@ -21,6 +22,12 @@ type Config struct {
 	MaxPostsPerGroup   int
 	MaxCommentsPerPost int
 	MaxCommunities     int
+	// ClassifyConcurrency — число параллельных обращений к классификатору.
+	ClassifyConcurrency int
+	// Ядро аудитории: пороги и режим объединения (OR вместо AND).
+	LikeThreshold    int
+	CommentThreshold int
+	CoreCombineOr    bool
 	// SkipExistingCommunities — пропускать сообщество целиком, если оно уже в БД.
 	SkipExistingCommunities bool
 }
@@ -44,9 +51,13 @@ type Store interface {
 	UpsertUser(ctx context.Context, u model.User) error
 	UpsertLike(ctx context.Context, l model.Like) error
 	UpsertComment(ctx context.Context, c model.Comment) error
+	UpsertReaction(ctx context.Context, r model.Reaction) error
+	UpdatePostSentiment(ctx context.Context, postID string, sentiment model.Sentiment) error
 	ExistingCommentIDs(ctx context.Context, postID string) (map[string]struct{}, error)
 	ExistingLikeUserIDs(ctx context.Context, postID string) (map[string]struct{}, error)
-	SegmentUsers(ctx context.Context) (int64, error)
+	ExistingPostSentiments(ctx context.Context, groupID string) (map[string]struct{}, error)
+	RecomputeUsers(ctx context.Context, likeThr, commentThr int, combineOr bool) (int64, error)
+	RecomputeStats(ctx context.Context, likeThr int) error
 }
 
 // New создаёт сервис.
@@ -108,11 +119,19 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 	}
 
-	updated, err := s.store.SegmentUsers(ctx)
+	updated, err := s.store.RecomputeUsers(ctx, s.cfg.LikeThreshold, s.cfg.CommentThreshold, s.cfg.CoreCombineOr)
 	if err != nil {
 		return err
 	}
 	s.log.Info("сегментация завершена", "communities", collected, "users_segmented", updated)
+
+	if err := s.store.RecomputeStats(ctx, s.cfg.LikeThreshold); err != nil {
+		return err
+	}
+	s.log.Info("статистика пересчитана",
+		"like_threshold", s.cfg.LikeThreshold,
+		"comment_threshold", s.cfg.CommentThreshold,
+		"core_combine_or", s.cfg.CoreCombineOr)
 	return nil
 }
 
@@ -130,10 +149,52 @@ func (s *Service) processCommunity(ctx context.Context, comm model.Community) er
 		if err := s.store.UpsertPost(ctx, p); err != nil {
 			return err
 		}
+		if err := s.processReactions(ctx, p); err != nil {
+			return err
+		}
 		if err := s.processLikes(ctx, p); err != nil {
 			return err
 		}
 		if err := s.processComments(ctx, p); err != nil {
+			return err
+		}
+	}
+	return s.classifyPosts(ctx, comm.GroupID, posts)
+}
+
+// classifyPosts проставляет тональность содержания постов (задача 3). Уже
+// классифицированные пропускаются, новые классифицируются конкурентно.
+func (s *Service) classifyPosts(ctx context.Context, groupID string, posts []model.Post) error {
+	done, err := s.store.ExistingPostSentiments(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	fresh := make([]model.Post, 0, len(posts))
+	for _, p := range posts {
+		if _, ok := done[p.PostID]; !ok {
+			fresh = append(fresh, p)
+		}
+	}
+	if len(fresh) == 0 {
+		return nil
+	}
+	texts := make([]string, len(fresh))
+	for i, p := range fresh {
+		texts[i] = p.Text
+	}
+	sentiments := s.classifyTexts(ctx, texts)
+	for i, p := range fresh {
+		if err := s.store.UpdatePostSentiment(ctx, p.PostID, sentiments[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// processReactions сохраняет агрегат реакций поста (приходит инлайн из wall.get).
+func (s *Service) processReactions(ctx context.Context, p model.Post) error {
+	for _, r := range p.Reactions {
+		if err := s.store.UpsertReaction(ctx, r); err != nil {
 			return err
 		}
 	}
@@ -174,24 +235,66 @@ func (s *Service) processComments(ctx context.Context, p model.Post) error {
 	if err != nil {
 		return err
 	}
+
+	// Оставляем только новые комментарии — остальные уже классифицированы.
+	fresh := make([]model.Comment, 0, len(comments))
 	for _, cm := range comments {
-		if _, ok := classified[cm.CommentID]; ok {
-			continue // комментарий уже сохранён и классифицирован — не дёргаем LLM
+		if _, ok := classified[cm.CommentID]; !ok {
+			fresh = append(fresh, cm)
 		}
+	}
+	if len(fresh) == 0 {
+		return nil
+	}
+
+	// Классификация — самая медленная часть (сетевой вызов на комментарий),
+	// поэтому считаем тональность конкурентно. Запись в БД и дедуп пользователей
+	// остаются последовательными.
+	texts := make([]string, len(fresh))
+	for i, cm := range fresh {
+		texts[i] = cm.Text
+	}
+	sentiments := s.classifyTexts(ctx, texts)
+	for i, cm := range fresh {
 		if err := s.ensureUser(ctx, vk.NewUser(atoiSafe(cm.UserID))); err != nil {
 			return err
 		}
-		sentiment, err := s.classifier.Classify(ctx, cm.Text)
-		if err != nil {
-			s.log.Warn("классификация не удалась", "comment_id", cm.CommentID, "err", err)
-			sentiment = model.Neutral
-		}
+		sentiment := sentiments[i]
 		cm.Sentiment = &sentiment
 		if err := s.store.UpsertComment(ctx, cm); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// classifyTexts классифицирует тексты конкурентно через пул воркеров
+// (cfg.ClassifyConcurrency, минимум 1). Каждая горутина пишет в свой индекс,
+// поэтому гонок нет; ошибка классификации не валит пайплайн — текст помечается
+// neutral.
+func (s *Service) classifyTexts(ctx context.Context, texts []string) []model.Sentiment {
+	out := make([]model.Sentiment, len(texts))
+	workers := max(s.cfg.ClassifyConcurrency, 1)
+
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for i := range texts {
+		wg.Add(1)
+		sem <- struct{}{} // блокируется, когда в работе уже workers горутин
+		go func(i int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			sentiment, err := s.classifier.Classify(ctx, texts[i])
+			if err != nil {
+				s.log.Warn("классификация не удалась", "err", err)
+				sentiment = model.Neutral
+			}
+			out[i] = sentiment
+		}(i)
+	}
+	wg.Wait()
+	return out
 }
 
 // ensureUser сохраняет пользователя один раз за прогон.

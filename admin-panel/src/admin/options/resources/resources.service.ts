@@ -17,10 +17,11 @@ export interface resource {
 // Данные собирает Go-сервис (vk-loyal-users-parser); в админке они доступны
 // только для чтения, поэтому create/edit/delete отключены.
 const VK_NAVIGATION = 'ВКонтакте';
+const STATS_NAVIGATION = 'Статистика';
 
-function readOnly(icon: string): ResourceOptions {
+function readOnly(icon: string, navigation = VK_NAVIGATION): ResourceOptions {
   return {
-    navigation: { name: VK_NAVIGATION, icon },
+    navigation: { name: navigation, icon },
     actions: {
       new: { isAccessible: false },
       edit: { isAccessible: false },
@@ -112,10 +113,35 @@ export class ResourceService {
         options: this.withExcelExport(readOnly('Heart'), 'like'),
       },
       {
+        model: Prisma.ModelName.reaction,
+        options: this.withExcelExport(readOnly('Smile'), 'reaction'),
+      },
+      {
         model: Prisma.ModelName.user,
         options: this.withExcelExport(
           withUrlLinks(readOnly('User'), ['user_profile_url']),
           'user',
+        ),
+      },
+      {
+        model: Prisma.ModelName.stats_sentiment_by_reaction,
+        options: this.withExcelExport(
+          readOnly('BarChart2', STATS_NAVIGATION),
+          'stats_sentiment_by_reaction',
+        ),
+      },
+      {
+        model: Prisma.ModelName.stats_post_sentiment_map,
+        options: this.withExcelExport(
+          readOnly('GitMerge', STATS_NAVIGATION),
+          'stats_post_sentiment_map',
+        ),
+      },
+      {
+        model: Prisma.ModelName.stats_core,
+        options: this.withExcelExport(
+          readOnly('Target', STATS_NAVIGATION),
+          'stats_core',
         ),
       },
     ];

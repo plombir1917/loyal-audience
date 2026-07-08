@@ -23,6 +23,9 @@ const (
 	likesPageSize  = 1000 // максимум для likes.getList
 	getByIDBatch   = 200  // сколько групп запрашиваем за один groups.getById
 	searchPageSize = 1000 // максимум для groups.search
+	// apiVersion — версия VK API. По умолчанию SDK шлёт 5.131, где wall.get не
+	// возвращает поле reactions; для сбора реакций нужна версия поновее.
+	apiVersion = "5.199"
 )
 
 // City — населённый пункт региона.
@@ -43,8 +46,10 @@ func New(token string, ratePerSec int, log *slog.Logger) *Client {
 	if ratePerSec <= 0 {
 		ratePerSec = 3
 	}
+	vkAPI := api.NewVK(token)
+	vkAPI.Version = apiVersion // иначе wall.get не отдаёт reactions
 	return &Client{
-		api: api.NewVK(token),
+		api: vkAPI,
 		lim: rate.NewLimiter(rate.Limit(ratePerSec), 1),
 		log: log,
 	}
@@ -156,14 +161,18 @@ func (c *Client) SearchCommunities(ctx context.Context, city City, regionName st
 		if err := c.wait(ctx); err != nil {
 			return nil, err
 		}
-		details, err := c.api.GroupsGetByID(api.Params{
+		// На версии API 5.199 (нужна для reactions) groups.getById возвращает
+		// объект {groups, profiles}, а типизированный метод SDK ждёт массив —
+		// поэтому разбираем ответ сами.
+		var details groupsGetByIDResponse
+		err := c.api.RequestUnmarshal("groups.getById", &details, api.Params{
 			"group_ids": strings.Join(ids[start:end], ","),
 			"fields":    "description,members_count,city",
 		}.WithContext(ctx))
 		if err != nil {
 			return nil, fmt.Errorf("groups.getById: %w", err)
 		}
-		for _, g := range details {
+		for _, g := range details.Groups {
 			if g.IsClosed != 0 {
 				continue
 			}
@@ -173,7 +182,30 @@ func (c *Client) SearchCommunities(ctx context.Context, city City, regionName st
 	return communities, nil
 }
 
-// GetPosts возвращает публикации сообщества не старше since (по убыванию даты).
+// wallGetResponse — часть ответа wall.get, которую разбираем сами: SDK не
+// типизирует поле reactions, а оно нужно для тональности реакций.
+type wallGetResponse struct {
+	Count int        `json:"count"`
+	Items []wallPost `json:"items"`
+}
+
+type wallPost struct {
+	ID        int            `json:"id"`
+	Date      int            `json:"date"`
+	Text      string         `json:"text"`
+	Reactions *wallReactions `json:"reactions"`
+}
+
+type wallReactions struct {
+	Count int `json:"count"`
+	Items []struct {
+		ID    int `json:"id"`
+		Count int `json:"count"`
+	} `json:"items"`
+}
+
+// GetPosts возвращает публикации сообщества не старше since (по убыванию даты)
+// вместе с агрегатом реакций (поле Reactions приходит инлайн в wall.get).
 func (c *Client) GetPosts(ctx context.Context, comm model.Community, since time.Time, max int) ([]model.Post, error) {
 	groupID, err := strconv.Atoi(comm.GroupID)
 	if err != nil {
@@ -186,7 +218,8 @@ func (c *Client) GetPosts(ctx context.Context, comm model.Community, since time.
 		if err := c.wait(ctx); err != nil {
 			return nil, err
 		}
-		resp, err := c.api.WallGet(api.Params{
+		var resp wallGetResponse
+		err := c.api.RequestUnmarshal("wall.get", &resp, api.Params{
 			"owner_id": ownerID,
 			"count":    vkPageSize,
 			"offset":   offset,
@@ -205,7 +238,7 @@ func (c *Client) GetPosts(ctx context.Context, comm model.Community, since time.
 				stop = true
 				break
 			}
-			posts = append(posts, toPost(p, ownerID, comm.GroupID, date))
+			posts = append(posts, c.toPost(p, ownerID, comm.GroupID, date))
 			if max != 0 && len(posts) >= max {
 				break
 			}
@@ -283,7 +316,21 @@ func (c *Client) GetComments(ctx context.Context, ownerID, postVKID int, postID 
 
 // --- мапперы ---
 
-func toCommunity(g object.GroupsGroup, region, city string) model.Community {
+// groupsGetByIDResponse — ответ groups.getById на версии API 5.199.
+type groupsGetByIDResponse struct {
+	Groups []groupInfo `json:"groups"`
+}
+
+type groupInfo struct {
+	ID           int    `json:"id"`
+	Name         string `json:"name"`
+	ScreenName   string `json:"screen_name"`
+	Description  string `json:"description"`
+	MembersCount int    `json:"members_count"`
+	IsClosed     int    `json:"is_closed"`
+}
+
+func toCommunity(g groupInfo, region, city string) model.Community {
 	url := "https://vk.com/" + g.ScreenName
 	if g.ScreenName == "" {
 		url = fmt.Sprintf("https://vk.com/club%d", g.ID)
@@ -299,8 +346,8 @@ func toCommunity(g object.GroupsGroup, region, city string) model.Community {
 	}
 }
 
-func toPost(p object.WallWallpost, ownerID int, groupID string, date time.Time) model.Post {
-	return model.Post{
+func (c *Client) toPost(p wallPost, ownerID int, groupID string, date time.Time) model.Post {
+	post := model.Post{
 		PostID:  fmt.Sprintf("%d_%d", ownerID, p.ID),
 		GroupID: groupID,
 		Text:    p.Text,
@@ -309,6 +356,51 @@ func toPost(p object.WallWallpost, ownerID int, groupID string, date time.Time) 
 		OwnerID: ownerID,
 		VKID:    p.ID,
 	}
+	if p.Reactions != nil {
+		for _, r := range p.Reactions.Items {
+			name, sentiment := reactionMeta(r.ID)
+			if name == "" {
+				c.log.Warn("vk: неизвестная реакция", "reaction_id", r.ID, "post_id", post.PostID)
+			}
+			post.Reactions = append(post.Reactions, model.Reaction{
+				ReactionID:   fmt.Sprintf("%s_%d", post.PostID, r.ID),
+				PostID:       post.PostID,
+				VKReactionID: r.ID,
+				Name:         name,
+				Sentiment:    sentiment,
+				Count:        r.Count,
+			})
+		}
+	}
+	return post
+}
+
+// reactionTable — маппинг id реакции VK (набор по умолчанию) в имя и тональность.
+// 0 — обычный лайк (учитывается отдельно таблицей likes, поэтому neutral);
+// 1..4 — позитивные эмодзи (сердце, восторг, смех, удивление); 5..6 — негативные
+// (печаль, гнев). Точные имена — best-effort; для тональности важна лишь группа.
+var reactionTable = map[int]struct {
+	name      string
+	sentiment model.Sentiment
+}{
+	0: {"like", model.Neutral},
+	1: {"heart", model.Positive},
+	2: {"fire", model.Positive},
+	3: {"haha", model.Positive},
+	4: {"wow", model.Positive},
+	5: {"sad", model.Negative},
+	6: {"angry", model.Negative},
+}
+
+// reactionMeta возвращает имя и тональность реакции. Неизвестный id (кастомные
+// наборы реакций) → пустое имя и neutral, чтобы не искажать статистику.
+func reactionMeta(id int) (string, *model.Sentiment) {
+	if m, ok := reactionTable[id]; ok {
+		s := m.sentiment
+		return m.name, &s
+	}
+	s := model.Neutral
+	return "", &s
 }
 
 func toComment(cm object.WallWallComment, ownerID int, postID string) model.Comment {
