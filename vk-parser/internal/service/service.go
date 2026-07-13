@@ -49,7 +49,7 @@ type Service struct {
 // Store — необходимый сервису контракт слоя хранения.
 type Store interface {
 	UpsertCommunity(ctx context.Context, c model.Community) error
-	CommunityExists(ctx context.Context, groupID string) (bool, error)
+	AllCommunityIDs(ctx context.Context) (map[string]struct{}, error)
 	UpsertPost(ctx context.Context, p model.Post) error
 	UpsertUser(ctx context.Context, u model.User) error
 	UpsertLike(ctx context.Context, l model.Like) error
@@ -83,6 +83,20 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 	s.log.Info("регион разрешён", "region", s.cfg.RegionName, "cities", len(cities))
 
+	// При SKIP_EXISTING_COMMUNITIES заранее загружаем id всех обработанных
+	// сообществ, чтобы отсеивать их на этапе поиска (до groups.getById) и внутри
+	// прогона не заходить в них повторно. Ключевое при этом флаге — пройтись
+	// только по новым, ещё не обработанным группам и их данным.
+	skipExisting := s.cfg.SkipExistingCommunities && !s.cfg.ReparseExisting
+	var known map[string]struct{}
+	if skipExisting {
+		known, err = s.store.AllCommunityIDs(ctx)
+		if err != nil {
+			return err
+		}
+		s.log.Info("пропуск существующих включён", "known_communities", len(known))
+	}
+
 	collected := 0
 	for _, city := range cities {
 		if s.cfg.MaxCommunities != 0 && collected >= s.cfg.MaxCommunities {
@@ -92,7 +106,9 @@ func (s *Service) Run(ctx context.Context) error {
 			return err
 		}
 
-		communities, err := s.vk.SearchCommunities(ctx, city, s.cfg.RegionName, s.cfg.SearchKeywords)
+		// known передаётся как skip-множество: SearchCommunities не обогащает и не
+		// возвращает уже обработанные группы (при выключенном флаге known == nil).
+		communities, err := s.vk.SearchCommunities(ctx, city, s.cfg.RegionName, s.cfg.SearchKeywords, known)
 		if err != nil {
 			s.log.Warn("поиск сообществ не удался", "city", city.Title, "err", err)
 			continue
@@ -100,16 +116,6 @@ func (s *Service) Run(ctx context.Context) error {
 		for _, comm := range communities {
 			if s.cfg.MaxCommunities != 0 && collected >= s.cfg.MaxCommunities {
 				break
-			}
-			if s.cfg.SkipExistingCommunities && !s.cfg.ReparseExisting {
-				exists, err := s.store.CommunityExists(ctx, comm.GroupID)
-				if err != nil {
-					return err
-				}
-				if exists {
-					s.log.Info("сообщество пропущено (уже в БД)", "group_id", comm.GroupID)
-					continue
-				}
 			}
 			if err := s.processCommunity(ctx, comm); err != nil {
 				if ctx.Err() != nil {
@@ -119,6 +125,10 @@ func (s *Service) Run(ctx context.Context) error {
 				continue
 			}
 			collected++
+			// Помечаем обработанным, чтобы в других городах его снова не забирать.
+			if skipExisting {
+				known[comm.GroupID] = struct{}{}
+			}
 		}
 	}
 

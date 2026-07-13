@@ -375,15 +375,29 @@ func (s *Storage) recomputeCore(ctx context.Context, likeThr int) error {
 	return nil
 }
 
-// CommunityExists сообщает, сохранено ли уже сообщество с таким group_id.
-func (s *Storage) CommunityExists(ctx context.Context, groupID string) (bool, error) {
-	var exists bool
-	err := s.pool.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM community WHERE group_id = $1)`, groupID).Scan(&exists)
+// AllCommunityIDs возвращает множество group_id всех уже сохранённых сообществ.
+// Загружается один раз в начале прогона, чтобы при SKIP_EXISTING_COMMUNITIES
+// отсеивать известные группы на самом раннем этапе — до обогащения через
+// groups.getById, — и не тратить на них время.
+func (s *Storage) AllCommunityIDs(ctx context.Context) (map[string]struct{}, error) {
+	rows, err := s.pool.Query(ctx, `SELECT group_id FROM community`)
 	if err != nil {
-		return false, fmt.Errorf("community exists %s: %w", groupID, err)
+		return nil, fmt.Errorf("all community ids: %w", err)
 	}
-	return exists, nil
+	defer rows.Close()
+
+	ids := make(map[string]struct{})
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan group id: %w", err)
+		}
+		ids[id] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate group ids: %w", err)
+	}
+	return ids, nil
 }
 
 // ExistingCommentIDs возвращает множество comment_id поста, которые уже сохранены

@@ -118,8 +118,10 @@ func (c *Client) ResolveRegionCities(ctx context.Context, regionName string) ([]
 }
 
 // SearchCommunities ищет открытые сообщества, привязанные к городу, и обогащает
-// их данными (описание, число подписчиков) через groups.getById.
-func (c *Client) SearchCommunities(ctx context.Context, city City, regionName string, keywords []string) ([]model.Community, error) {
+// их данными (описание, число подписчиков) через groups.getById. Группы, чьи
+// group_id есть в skip, отбрасываются сразу после поиска — до обогащения, чтобы
+// не тратить getById-запросы на уже обработанные сообщества (skip может быть nil).
+func (c *Client) SearchCommunities(ctx context.Context, city City, regionName string, keywords []string, skip map[string]struct{}) ([]model.Community, error) {
 	// groups.search отдаёт максимум ~1000 групп на один q и матчит его по тексту.
 	// Чтобы выбрать больше, гоняем несколько запросов на город (имя города +
 	// темы-затравки) и дедуплицируем открытые сообщества по id. city_id при этом
@@ -157,7 +159,11 @@ func (c *Client) SearchCommunities(ctx context.Context, city City, regionName st
 				continue
 			}
 			seen[g.ID] = struct{}{}
-			ids = append(ids, strconv.Itoa(g.ID))
+			gid := strconv.Itoa(g.ID)
+			if _, done := skip[gid]; done {
+				continue // уже обработано — не тратим getById на эту группу
+			}
+			ids = append(ids, gid)
 		}
 	}
 	if len(ids) == 0 {
