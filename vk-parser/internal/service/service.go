@@ -98,7 +98,7 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 
 	collected := 0
-	for _, city := range cities {
+	for i, city := range cities {
 		if s.cfg.MaxCommunities != 0 && collected >= s.cfg.MaxCommunities {
 			break
 		}
@@ -113,6 +113,15 @@ func (s *Service) Run(ctx context.Context) error {
 			s.log.Warn("поиск сообществ не удался", "city", city.Title, "err", err)
 			continue
 		}
+		// Прогресс по городам — heartbeat, чтобы прогон не выглядел «зависшим»,
+		// когда все найденные группы уже известны (при skip новых может не быть
+		// сотни городов подряд). new_communities — сколько ещё не обработанных.
+		s.log.Info("город просканирован",
+			"city", city.Title,
+			"city_index", i+1,
+			"cities_total", len(cities),
+			"new_communities", len(communities),
+			"collected_total", collected)
 		for _, comm := range communities {
 			if s.cfg.MaxCommunities != 0 && collected >= s.cfg.MaxCommunities {
 				break
