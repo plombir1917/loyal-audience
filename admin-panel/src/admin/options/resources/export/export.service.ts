@@ -59,6 +59,7 @@ export class ExportService {
           { key: 'post_text', header: 'Текст' },
           { key: 'post_date', header: 'Дата' },
           { key: 'post_url', header: 'Ссылка' },
+          { key: 'sentiment', header: 'Тональность' },
         ],
         fetch: () => this.prisma.post.findMany(),
       },
@@ -86,6 +87,19 @@ export class ExportService {
         fetch: () => this.prisma.like.findMany(),
       },
       {
+        id: 'reaction',
+        sheet: 'Реакции',
+        columns: [
+          { key: 'reaction_id', header: 'ID реакции' },
+          { key: 'post_id', header: 'ID поста' },
+          { key: 'vk_reaction_id', header: 'VK ID реакции' },
+          { key: 'reaction_name', header: 'Название' },
+          { key: 'sentiment', header: 'Тональность' },
+          { key: 'count', header: 'Количество' },
+        ],
+        fetch: () => this.prisma.reaction.findMany(),
+      },
+      {
         id: 'user',
         sheet: 'Пользователи',
         columns: [
@@ -93,8 +107,84 @@ export class ExportService {
           { key: 'user_vk_id', header: 'VK ID' },
           { key: 'user_profile_url', header: 'Профиль' },
           { key: 'segment', header: 'Сегмент' },
+          { key: 'like_count', header: 'Лайков' },
+          { key: 'comment_positive', header: 'Позитивных комментариев' },
+          { key: 'comment_negative', header: 'Негативных комментариев' },
+          { key: 'comment_neutral', header: 'Нейтральных комментариев' },
+          { key: 'is_core', header: 'В ядре' },
         ],
         fetch: () => this.prisma.user.findMany(),
+      },
+      {
+        id: 'stats_sentiment_by_reaction',
+        sheet: 'Тональность по реакциям',
+        columns: [
+          { key: 'reaction_bucket', header: 'Бакет реакции' },
+          { key: 'posts', header: 'Постов' },
+          { key: 'positive_comments', header: 'Позитивных комментариев' },
+          { key: 'negative_comments', header: 'Негативных комментариев' },
+          { key: 'neutral_comments', header: 'Нейтральных комментариев' },
+          { key: 'total_comments', header: 'Всего комментариев' },
+        ],
+        fetch: () => this.prisma.stats_sentiment_by_reaction.findMany(),
+      },
+      {
+        id: 'stats_post_sentiment_map',
+        sheet: 'Тональность и посты',
+        columns: [
+          { key: 'post_sentiment', header: 'Тональность поста' },
+          { key: 'posts', header: 'Постов' },
+          { key: 'positive_comments', header: 'Позитивных комментариев' },
+          { key: 'negative_comments', header: 'Негативных комментариев' },
+          { key: 'neutral_comments', header: 'Нейтральных комментариев' },
+          { key: 'likes', header: 'Лайков' },
+        ],
+        fetch: () => this.prisma.stats_post_sentiment_map.findMany(),
+      },
+      {
+        id: 'stats_core',
+        sheet: 'Ядро аудитории',
+        columns: [
+          { key: 'variant', header: 'Вариант расчёта' },
+          { key: 'total_users', header: 'Всего пользователей' },
+          { key: 'core_users', header: 'В ядре' },
+          { key: 'core_share', header: 'Доля ядра' },
+        ],
+        fetch: () => this.prisma.stats_core.findMany(),
+      },
+      {
+        id: 'stats_likes_distribution',
+        sheet: 'Распределение по лайкам',
+        columns: [
+          { key: 'like_count', header: 'Кол-во лайков' },
+          {
+            key: 'users',
+            header: 'Абсолютное (сколько человек поставили столько лайков)',
+          },
+          {
+            key: 'share_percent',
+            header: 'Относительное (% от общего числа пользователей)',
+          },
+        ],
+        fetch: () =>
+          this.prisma.stats_likes_distribution.findMany({
+            orderBy: { like_count: 'asc' },
+          }),
+      },
+      {
+        id: 'stats_comments_by_likes',
+        sheet: 'Комментарии по лайкам',
+        columns: [
+          { key: 'like_count', header: 'Кол-во лайков' },
+          { key: 'comments', header: 'Кол-во комментариев (абсолютное)' },
+          { key: 'positive_comments', header: 'Позитивных комментариев' },
+          { key: 'negative_comments', header: 'Негативных комментариев' },
+          { key: 'neutral_comments', header: 'Нейтральных комментариев' },
+        ],
+        fetch: () =>
+          this.prisma.stats_comments_by_likes.findMany({
+            orderBy: { like_count: 'asc' },
+          }),
       },
     ];
   }
