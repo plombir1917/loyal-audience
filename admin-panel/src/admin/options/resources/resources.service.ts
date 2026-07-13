@@ -6,6 +6,7 @@ import { AdminOptions } from './options/admin/admin.options.js';
 import { FeatureType, ResourceOptions, ResourceWithOptions } from 'adminjs';
 import { ActionsService } from './actions.service.js';
 import { ExportService } from './export/export.service.js';
+import { StatsService } from './stats/stats.service.js';
 import { Components } from '../../components/components.config.js';
 
 export interface resource {
@@ -58,6 +59,7 @@ export class ResourceService {
     private readonly actionsService: ActionsService,
     private readonly adminOptions: AdminOptions,
     private readonly exportService: ExportService,
+    private readonly statsService: StatsService,
   ) {}
 
   // Добавляет ресурсу кнопку «Excel» (выгрузка всей таблицы в файл .xlsx).
@@ -76,6 +78,25 @@ export class ResourceService {
           // Подпись кнопки берётся из локали: actions.exportExcel.
           component: Components.ExportExcel,
           handler: async () => this.exportService.exportResource(resourceId),
+        },
+      },
+    };
+  }
+
+  // Добавляет ресурсу статистики кнопку «Рассчитать» (resource-action): она
+  // пересчитывает статистику из данных, уже лежащих в БД, вне зависимости от
+  // выполнения парсера, и заполняет таблицу свежими значениями.
+  private withRecalculate(options: ResourceOptions): ResourceOptions {
+    return {
+      ...options,
+      actions: {
+        ...(options.actions ?? {}),
+        recalculate: {
+          actionType: 'resource',
+          icon: 'Calculator',
+          // Подпись кнопки берётся из локали: actions.recalculate.
+          component: Components.RecalculateStats,
+          handler: async () => this.statsService.recompute(),
         },
       },
     };
@@ -125,37 +146,47 @@ export class ResourceService {
       },
       {
         model: Prisma.ModelName.stats_sentiment_by_reaction,
-        options: this.withExcelExport(
-          readOnly('BarChart2', STATS_NAVIGATION),
-          'stats_sentiment_by_reaction',
+        options: this.withRecalculate(
+          this.withExcelExport(
+            readOnly('BarChart2', STATS_NAVIGATION),
+            'stats_sentiment_by_reaction',
+          ),
         ),
       },
       {
         model: Prisma.ModelName.stats_post_sentiment_map,
-        options: this.withExcelExport(
-          readOnly('GitMerge', STATS_NAVIGATION),
-          'stats_post_sentiment_map',
+        options: this.withRecalculate(
+          this.withExcelExport(
+            readOnly('GitMerge', STATS_NAVIGATION),
+            'stats_post_sentiment_map',
+          ),
         ),
       },
       {
         model: Prisma.ModelName.stats_core,
-        options: this.withExcelExport(
-          readOnly('Target', STATS_NAVIGATION),
-          'stats_core',
+        options: this.withRecalculate(
+          this.withExcelExport(
+            readOnly('Target', STATS_NAVIGATION),
+            'stats_core',
+          ),
         ),
       },
       {
         model: Prisma.ModelName.stats_likes_distribution,
-        options: this.withExcelExport(
-          readOnly('BarChart', STATS_NAVIGATION),
-          'stats_likes_distribution',
+        options: this.withRecalculate(
+          this.withExcelExport(
+            readOnly('BarChart', STATS_NAVIGATION),
+            'stats_likes_distribution',
+          ),
         ),
       },
       {
         model: Prisma.ModelName.stats_comments_by_likes,
-        options: this.withExcelExport(
-          readOnly('MessageCircle', STATS_NAVIGATION),
-          'stats_comments_by_likes',
+        options: this.withRecalculate(
+          this.withExcelExport(
+            readOnly('MessageCircle', STATS_NAVIGATION),
+            'stats_comments_by_likes',
+          ),
         ),
       },
     ];

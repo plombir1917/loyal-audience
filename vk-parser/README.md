@@ -88,7 +88,16 @@ chat/completions endpoint (OpenAI, OpenRouter, Ollama, llama.cpp и т.п.).
 AdminJS): `stats_sentiment_by_reaction` — распределение тональностей комментариев
 по доминирующей реакции поста; `stats_post_sentiment_map` — связь тональности
 комментариев/лайков с тональностью поста; `stats_core` — доля ядра в двух
-вариантах (`likes_only`, `likes_plus_comments`).
+вариантах (`likes_only`, `likes_plus_comments`); `stats_likes_distribution` —
+распределение пользователей по числу поставленных лайков;
+`stats_comments_by_likes` — комментарии пользователей (с разбивкой по тональности)
+в разрезе числа лайков.
+
+Этот же расчёт (метрики пользователей + все `stats_*`) можно запустить вручную из
+AdminJS кнопкой **«Рассчитать»** на любой странице статистики — она пересчитывает
+таблицы из данных, уже лежащих в БД, вне зависимости от прогона парсера (пороги
+ядра берутся из `LIKE_THRESHOLD`/`COMMENT_THRESHOLD`/`CORE_COMBINE` окружения
+admin-panel).
 
 ## Конфигурация
 

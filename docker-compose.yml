@@ -7,6 +7,10 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
+      # Пороги ядра для кнопки «Рассчитать» — те же, что у парсера (см. ниже).
+      - LIKE_THRESHOLD=${LIKE_THRESHOLD:-1}
+      - COMMENT_THRESHOLD=${COMMENT_THRESHOLD:-1}
+      - CORE_COMBINE=${CORE_COMBINE:-and}
     build:
       context: ./admin-panel
     ports:

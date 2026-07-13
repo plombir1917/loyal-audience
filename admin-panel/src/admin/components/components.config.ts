@@ -12,6 +12,10 @@ export const Components = {
     'ExportExcel',
     path.join(__dirname, 'export-excel'),
   ),
+  RecalculateStats: componentLoader.add(
+    'RecalculateStats',
+    path.join(__dirname, 'recalculate-stats'),
+  ),
   Dashboard: componentLoader.add(
     'Dashboard',
     path.join(__dirname, 'dashboard'),

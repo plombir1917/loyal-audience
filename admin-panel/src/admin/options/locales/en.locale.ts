@@ -17,6 +17,7 @@ export const en = {
     upload: 'Загрузить',
     remove: 'Удалить файл',
     exportExcel: 'Excel',
+    recalculate: 'Рассчитать',
   },
   buttons: {
     save: 'Сохранить',
