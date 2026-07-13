@@ -68,6 +68,13 @@ type Config struct {
 	// пропускается целиком (без захода в посты/комментарии). Ускоряет повторные
 	// прогоны ценой того, что новые посты в известных сообществах не подхватятся.
 	SkipExistingCommunities bool
+
+	// ReparseExisting — если true, повторно парсит и переобрабатывает уже
+	// сохранённые сущности (сообщества, посты, комментарии, лайки, реакции,
+	// тональности), игнорируя всю логику пропусков. Перекрывает
+	// SkipExistingCommunities. Upsert'ы идемпотентны — данные перезаписываются
+	// свежими (в т.ч. заново классифицируются посты и комментарии).
+	ReparseExisting bool
 }
 
 // Load читает конфигурацию из окружения, подставляя значения по умолчанию.
@@ -85,7 +92,7 @@ func Load() Config {
 		RegionName:         getEnv("REGION_NAME", "Чувашская Республика"),
 		SearchKeywords:     getEnvList("SEARCH_KEYWORDS", defaultSearchKeywords),
 		CollectSince:       getEnvDate("COLLECT_SINCE", startOfYear()),
-		MaxPostsPerGroup:   getEnvInt("MAX_POSTS_PER_GROUP", 100),
+		MaxPostsPerGroup:   getEnvInt("MAX_POSTS_PER_GROUP", 0),
 		MaxCommentsPerPost: getEnvInt("MAX_COMMENTS_PER_POST", 100),
 		MaxCommunities:     getEnvInt("MAX_COMMUNITIES", 0),
 		VKRateLimit:        getEnvInt("VK_RATE_LIMIT", 3),
@@ -97,6 +104,7 @@ func Load() Config {
 		CoreCombineOr:    strings.EqualFold(getEnv("CORE_COMBINE", "and"), "or"),
 
 		SkipExistingCommunities: getEnvBool("SKIP_EXISTING_COMMUNITIES", false),
+		ReparseExisting:         getEnvBool("REPARSE_EXISTING", false),
 	}
 }
 

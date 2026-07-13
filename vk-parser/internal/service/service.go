@@ -30,6 +30,9 @@ type Config struct {
 	CoreCombineOr    bool
 	// SkipExistingCommunities — пропускать сообщество целиком, если оно уже в БД.
 	SkipExistingCommunities bool
+	// ReparseExisting — повторно обрабатывать уже сохранённые сущности,
+	// игнорируя пропуски (перекрывает SkipExistingCommunities).
+	ReparseExisting bool
 }
 
 // Service связывает VK-клиент, классификатор и хранилище.
@@ -98,7 +101,7 @@ func (s *Service) Run(ctx context.Context) error {
 			if s.cfg.MaxCommunities != 0 && collected >= s.cfg.MaxCommunities {
 				break
 			}
-			if s.cfg.SkipExistingCommunities {
+			if s.cfg.SkipExistingCommunities && !s.cfg.ReparseExisting {
 				exists, err := s.store.CommunityExists(ctx, comm.GroupID)
 				if err != nil {
 					return err
@@ -162,10 +165,23 @@ func (s *Service) processCommunity(ctx context.Context, comm model.Community) er
 	return s.classifyPosts(ctx, comm.GroupID, posts)
 }
 
+// existingSet возвращает уже сохранённое множество для пропуска — или пустое,
+// если включён повторный парсинг (ReparseExisting), тогда всё переобрабатывается
+// заново. Инкапсулирует единое правило skip для комментариев/лайков/постов.
+func (s *Service) existingSet(ctx context.Context, reparse bool, load func(context.Context) (map[string]struct{}, error)) (map[string]struct{}, error) {
+	if reparse {
+		return map[string]struct{}{}, nil
+	}
+	return load(ctx)
+}
+
 // classifyPosts проставляет тональность содержания постов (задача 3). Уже
-// классифицированные пропускаются, новые классифицируются конкурентно.
+// классифицированные пропускаются, новые классифицируются конкурентно. При
+// ReparseExisting классифицируются заново все посты.
 func (s *Service) classifyPosts(ctx context.Context, groupID string, posts []model.Post) error {
-	done, err := s.store.ExistingPostSentiments(ctx, groupID)
+	done, err := s.existingSet(ctx, s.cfg.ReparseExisting, func(ctx context.Context) (map[string]struct{}, error) {
+		return s.store.ExistingPostSentiments(ctx, groupID)
+	})
 	if err != nil {
 		return err
 	}
@@ -202,7 +218,9 @@ func (s *Service) processReactions(ctx context.Context, p model.Post) error {
 }
 
 func (s *Service) processLikes(ctx context.Context, p model.Post) error {
-	seen, err := s.store.ExistingLikeUserIDs(ctx, p.PostID)
+	seen, err := s.existingSet(ctx, s.cfg.ReparseExisting, func(ctx context.Context) (map[string]struct{}, error) {
+		return s.store.ExistingLikeUserIDs(ctx, p.PostID)
+	})
 	if err != nil {
 		return err
 	}
@@ -227,7 +245,9 @@ func (s *Service) processLikes(ctx context.Context, p model.Post) error {
 }
 
 func (s *Service) processComments(ctx context.Context, p model.Post) error {
-	classified, err := s.store.ExistingCommentIDs(ctx, p.PostID)
+	classified, err := s.existingSet(ctx, s.cfg.ReparseExisting, func(ctx context.Context) (map[string]struct{}, error) {
+		return s.store.ExistingCommentIDs(ctx, p.PostID)
+	})
 	if err != nil {
 		return err
 	}

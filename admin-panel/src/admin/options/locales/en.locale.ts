@@ -236,6 +236,8 @@ export const en = {
     stats_sentiment_by_reaction: 'Тональность по реакциям',
     stats_post_sentiment_map: 'Тональность и посты',
     stats_core: 'Ядро аудитории',
+    stats_likes_distribution: 'Распределение по лайкам',
+    stats_comments_by_likes: 'Комментарии по лайкам',
     users: 'Пользователи',
     ВКонтакте: 'ВКонтакте',
     Статистика: 'Статистика',
@@ -443,6 +445,22 @@ export const en = {
         total_users: 'Всего пользователей',
         core_users: 'В ядре',
         core_share: 'Доля ядра',
+      },
+    },
+    stats_likes_distribution: {
+      properties: {
+        like_count: 'Кол-во лайков',
+        users: 'Абсолютное (сколько человек поставили столько лайков)',
+        share_percent: 'Относительное (% от общего числа пользователей)',
+      },
+    },
+    stats_comments_by_likes: {
+      properties: {
+        like_count: 'Кол-во лайков',
+        comments: 'Кол-во комментариев (абсолютное)',
+        positive_comments: 'Позитивных комментариев',
+        negative_comments: 'Негативных комментариев',
+        neutral_comments: 'Нейтральных комментариев',
       },
     },
   },

@@ -63,6 +63,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		CoreCombineOr:       cfg.CoreCombineOr,
 
 		SkipExistingCommunities: cfg.SkipExistingCommunities,
+		ReparseExisting:         cfg.ReparseExisting,
 	}, log)
 
 	return svc.Run(ctx)

@@ -144,6 +144,20 @@ export class ResourceService {
           'stats_core',
         ),
       },
+      {
+        model: Prisma.ModelName.stats_likes_distribution,
+        options: this.withExcelExport(
+          readOnly('BarChart', STATS_NAVIGATION),
+          'stats_likes_distribution',
+        ),
+      },
+      {
+        model: Prisma.ModelName.stats_comments_by_likes,
+        options: this.withExcelExport(
+          readOnly('MessageCircle', STATS_NAVIGATION),
+          'stats_comments_by_likes',
+        ),
+      },
     ];
   }
 

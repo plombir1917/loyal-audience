@@ -175,6 +175,78 @@ func (s *Storage) RecomputeStats(ctx context.Context, likeThr int) error {
 	if err := s.recomputeCore(ctx, likeThr); err != nil {
 		return err
 	}
+	if err := s.recomputeLikesDistribution(ctx); err != nil {
+		return err
+	}
+	if err := s.recomputeCommentsByLikes(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+// recomputeCommentsByLikes: комментарии пользователей в разрезе числа
+// поставленных ими лайков — по строке на каждое встречающееся значение
+// like_count (от 1): всего комментариев и разбивка по тональности (метрики
+// comment_* уже посчитаны RecomputeUsers). Ключи динамические, поэтому таблица
+// пересобирается в транзакции (DELETE + INSERT).
+func (s *Storage) recomputeCommentsByLikes(ctx context.Context) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("recompute comments_by_likes: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM stats_comments_by_likes`); err != nil {
+		return fmt.Errorf("recompute comments_by_likes: delete: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO stats_comments_by_likes
+			(like_count, comments, positive_comments, negative_comments, neutral_comments)
+		SELECT like_count,
+			SUM(comment_positive + comment_negative + comment_neutral),
+			SUM(comment_positive),
+			SUM(comment_negative),
+			SUM(comment_neutral)
+		FROM users
+		WHERE like_count > 0
+		GROUP BY like_count`); err != nil {
+		return fmt.Errorf("recompute comments_by_likes: insert: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("recompute comments_by_likes: commit: %w", err)
+	}
+	return nil
+}
+
+// recomputeLikesDistribution: распределение пользователей по числу поставленных
+// лайков — по строке на каждое встречающееся значение like_count (от 1):
+// абсолютное число таких пользователей и их доля (в %) от общего числа
+// пользователей. Ключи динамические (набор значений like_count меняется между
+// прогонами), поэтому таблица полностью пересобирается в транзакции
+// (DELETE + INSERT), иначе остались бы строки для исчезнувших значений.
+func (s *Storage) recomputeLikesDistribution(ctx context.Context) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("recompute likes_distribution: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM stats_likes_distribution`); err != nil {
+		return fmt.Errorf("recompute likes_distribution: delete: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO stats_likes_distribution (like_count, users, share_percent)
+		SELECT like_count,
+			COUNT(*),
+			COALESCE(100.0 * COUNT(*)::float / NULLIF((SELECT COUNT(*) FROM users), 0), 0)
+		FROM users
+		WHERE like_count > 0
+		GROUP BY like_count`); err != nil {
+		return fmt.Errorf("recompute likes_distribution: insert: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("recompute likes_distribution: commit: %w", err)
+	}
 	return nil
 }
 

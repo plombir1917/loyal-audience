@@ -88,22 +88,31 @@ func (c *Client) ResolveRegionCities(ctx context.Context, regionName string) ([]
 		return nil, fmt.Errorf("регион %q не найден", regionName)
 	}
 
-	if err := c.wait(ctx); err != nil {
-		return nil, err
-	}
-	cities, err := c.api.DatabaseGetCities(api.Params{
-		"country_id": 1,
-		"region_id":  regionID,
-		"need_all":   1,
-		"count":      1000,
-	}.WithContext(ctx))
-	if err != nil {
-		return nil, fmt.Errorf("database.getCities: %w", err)
-	}
-
-	out := make([]City, 0, len(cities.Items))
-	for _, ci := range cities.Items {
-		out = append(out, City{ID: ci.ID, Title: ci.Title})
+	// database.getCities отдаёт максимум 1000 записей за вызов, а в регионе их
+	// бывает больше (у Чувашии ~1728) — забираем постранично все, иначе часть
+	// городов (а с ними и их сообщества) выпадет из парсинга.
+	const cityPageSize = 1000
+	out := make([]City, 0, cityPageSize)
+	for offset := 0; ; offset += cityPageSize {
+		if err := c.wait(ctx); err != nil {
+			return nil, err
+		}
+		cities, err := c.api.DatabaseGetCities(api.Params{
+			"country_id": 1,
+			"region_id":  regionID,
+			"need_all":   1,
+			"count":      cityPageSize,
+			"offset":     offset,
+		}.WithContext(ctx))
+		if err != nil {
+			return nil, fmt.Errorf("database.getCities: %w", err)
+		}
+		for _, ci := range cities.Items {
+			out = append(out, City{ID: ci.ID, Title: ci.Title})
+		}
+		if len(cities.Items) == 0 || offset+cityPageSize >= cities.Count {
+			break
+		}
 	}
 	return out, nil
 }
